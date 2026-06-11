@@ -64,11 +64,13 @@ func DialPublish(rawURL string, cons *flv.Consumer) (io.Writer, error) {
 }
 
 func NewClient(conn net.Conn, u *url.URL) (*Conn, error) {
+	cnt := &countReader{Reader: conn}
 	c := &Conn{
 		url: u.String(),
 
 		conn: conn,
-		rd:   bufio.NewReaderSize(conn, core.BufferSize),
+		cnt:  cnt,
+		rd:   bufio.NewReaderSize(cnt, core.BufferSize),
 		wr:   conn,
 
 		chunks: map[uint8]*chunk{},

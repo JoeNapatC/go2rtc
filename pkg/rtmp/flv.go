@@ -29,9 +29,32 @@ func (c *Conn) Producer() (*flv.Producer, error) {
 func (c *Conn) Read(p []byte) (n int, err error) {
 	// 1. Check temporary tempbuffer
 	if len(c.rdBuf) == 0 {
-		msgType, timeMS, payload, err2 := c.readMessage()
-		if err2 != nil {
-			return 0, err2
+		var msgType byte
+		var timeMS uint32
+		var payload []byte
+
+		// wait for media message and handle protocol control messages
+		// (ex. drones send Set Chunk Size after the publish command)
+		for {
+			if msgType, timeMS, payload, err = c.readMessage(); err != nil {
+				return 0, err
+			}
+
+			c.sendAcks()
+
+			switch msgType {
+			case TypeSetPacketSize:
+				c.setPacketSize(payload)
+				continue
+			case TypeServerBandwidth:
+				c.setAckWindow(payload)
+				continue
+			case TypeAudio, TypeVideo, TypeData:
+			default:
+				// skip acks, user control, bandwidth and command messages
+				continue
+			}
+			break
 		}
 
 		// previous tag size (4 byte) + header (11 byte) + payload

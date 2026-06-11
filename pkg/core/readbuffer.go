@@ -9,6 +9,11 @@ import (
 // in my tests MPEG-TS 40Mbit/s 4K-video require more than 1MB for probe
 const ProbeSize = 5 * 1024 * 1024 // 5MB
 
+// ErrProbeOverflow happens when read more than BufferSize bytes in buffering mode.
+// Stream data stays consistent: after Reset all buffered bytes will be replayed,
+// so the caller can stop probing and continue reading as usual.
+var ErrProbeOverflow = errors.New("probe reader overflow")
+
 const (
 	BufferDisable       = 0
 	BufferDrainAndClear = -1
@@ -58,10 +63,13 @@ func (r *ReadBuffer) Read(p []byte) (n int, err error) {
 		return r.Reader.Read(p)
 	}
 
-	n, err = r.Reader.Read(p)
-	if len(r.buf)+n > r.BufferSize {
-		return 0, errors.New("probe reader overflow")
+	// check before reading, so no bytes will be lost on overflow
+	// (buffer can exceed BufferSize by up to one Read)
+	if len(r.buf) >= r.BufferSize {
+		return 0, ErrProbeOverflow
 	}
+
+	n, err = r.Reader.Read(p)
 	r.buf = append(r.buf, p[:n]...)
 	r.pos += n
 	return

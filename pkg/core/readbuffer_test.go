@@ -62,3 +62,34 @@ func TestReadSeeker(t *testing.T) {
 	// 10. Check buffer empty
 	require.Nil(t, rd.buf)
 }
+
+func TestReadBufferOverflow(t *testing.T) {
+	data := make([]byte, 100)
+	for i := range data {
+		data[i] = byte(i)
+	}
+
+	rd := NewReadBuffer(bytes.NewReader(data))
+	rd.BufferSize = 10
+
+	// 1. Read to buffer
+	b := make([]byte, 7)
+	n, err := rd.Read(b)
+	require.Nil(t, err)
+	require.Equal(t, 7, n)
+
+	// 2. Buffer can exceed BufferSize by one read
+	n, err = rd.Read(b)
+	require.Nil(t, err)
+	require.Equal(t, 7, n)
+
+	// 3. Overflow without reading from the source
+	_, err = rd.Read(b)
+	require.ErrorIs(t, err, ErrProbeOverflow)
+
+	// 4. After Reset all data should be available (no bytes lost)
+	rd.Reset()
+	all, err := io.ReadAll(rd)
+	require.Nil(t, err)
+	require.Equal(t, data, all)
+}

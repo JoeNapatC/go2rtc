@@ -15,9 +15,11 @@ import (
 )
 
 func NewServer(conn net.Conn) (*Conn, error) {
+	cnt := &countReader{Reader: conn}
 	c := &Conn{
 		conn: conn,
-		rd:   bufio.NewReaderSize(conn, core.BufferSize),
+		cnt:  cnt,
+		rd:   bufio.NewReaderSize(cnt, core.BufferSize),
 		wr:   conn,
 
 		chunks: map[uint8]*chunk{},
@@ -97,9 +99,13 @@ func (c *Conn) ReadCommands() error {
 
 		//log.Printf("%d %.256x", msgType, b)
 
+		c.sendAcks()
+
 		switch msgType {
 		case TypeSetPacketSize:
-			c.rdPacketSize = binary.BigEndian.Uint32(b)
+			c.setPacketSize(b)
+		case TypeServerBandwidth:
+			c.setAckWindow(b)
 		case TypeCommand:
 			if err = c.acceptCommand(b); err != nil {
 				return err

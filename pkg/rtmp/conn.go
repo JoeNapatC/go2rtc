@@ -13,7 +13,9 @@ import (
 
 const (
 	TypeSetPacketSize   = 1
-	TypeServerBandwidth = 5
+	TypeAcknowledgement = 3
+	TypeUserControl     = 4
+	TypeServerBandwidth = 5 // Window Acknowledgement Size
 	TypeClientBandwidth = 6
 	TypeAudio           = 8
 	TypeVideo           = 9
@@ -29,11 +31,15 @@ type Conn struct {
 	rdPacketSize uint32
 	wrPacketSize uint32
 
+	rdAckWindow uint32 // Window Acknowledgement Size, requested by remote
+	rdAckLast   uint32 // value of bytes counter on last sent ack
+
 	chunks   map[byte]*chunk
 	streamID byte
 	url      string
 
 	conn net.Conn
+	cnt  *countReader
 	rd   io.Reader
 	wr   io.Writer
 
@@ -46,6 +52,47 @@ func (c *Conn) Close() error {
 	return c.conn.Close()
 }
 
+// countReader counts raw bytes received from the network for RTMP acknowledgements
+type countReader struct {
+	io.Reader
+	n uint32 // RTMP ack counter is uint32 and wraps naturally
+}
+
+func (c *countReader) Read(p []byte) (n int, err error) {
+	n, err = c.Reader.Read(p)
+	c.n += uint32(n)
+	return
+}
+
+func (c *Conn) setPacketSize(b []byte) {
+	if len(b) >= 4 {
+		// zero or too big size will break chunks reading
+		if size := binary.BigEndian.Uint32(b); size > 0 && size < 0x8000_0000 {
+			c.rdPacketSize = size
+		}
+	}
+}
+
+func (c *Conn) setAckWindow(b []byte) {
+	if len(b) >= 4 {
+		c.rdAckWindow = binary.BigEndian.Uint32(b)
+	}
+}
+
+// sendAcks sends RTMP Acknowledgement if remote requested it via
+// Window Acknowledgement Size. Some encoders (ex. drones) stop sending
+// data when server doesn't acknowledge received bytes.
+func (c *Conn) sendAcks() {
+	if c.cnt == nil || c.rdAckWindow == 0 {
+		return
+	}
+	if c.cnt.n-c.rdAckLast >= c.rdAckWindow {
+		c.rdAckLast = c.cnt.n
+		b := binary.BigEndian.AppendUint32(nil, c.cnt.n)
+		_ = c.writeMessage(2, TypeAcknowledgement, 0, b)
+	}
+}
+
 func (c *Conn) readResponse(wait func(items []any) bool) ([]any, error) {
 	for {
 		msgType, _, b, err := c.readMessage()
@@ -56,7 +103,9 @@ func (c *Conn) readResponse(wait func(items []any) bool) ([]any, error) {
 
 		switch msgType {
 		case TypeSetPacketSize:
-			c.rdPacketSize = binary.BigEndian.Uint32(b)
+			c.setPacketSize(b)
+		case TypeServerBandwidth:
+			c.setAckWindow(b)
 		case TypeCommand:
 			items, _ := amf.NewReader(b).ReadItems()
 			if wait(items) {
