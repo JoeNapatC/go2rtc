@@ -55,7 +55,9 @@ func (c *Conn) Read(p []byte) (n int, err error) {
 }
 
 func encodeFLV(b []byte, msgType byte, time uint32, payload []byte) {
-	_ = b[4+11]
+	// header is 15 bytes (indexes 0..14), so buffer may be exactly 15 bytes
+	// when payload is empty - checking b[15] here would panic
+	_ = b[4+11-1]
 
 	b[0] = 0
 	b[1] = 0
