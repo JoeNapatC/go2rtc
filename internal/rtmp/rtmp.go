@@ -77,9 +77,9 @@ func tcpHandle(netConn net.Conn) error {
 
 	switch rtmpConn.Intent {
 	case rtmp.CommandPlay:
-		stream := streams.Get(rtmpConn.App)
+		stream := getStream(rtmpConn)
 		if stream == nil {
-			return errors.New("stream not found: " + rtmpConn.App)
+			return errors.New("stream not found: app=" + rtmpConn.App + " key=" + rtmpConn.Stream)
 		}
 
 		cons := flv.NewConsumer()
@@ -98,9 +98,9 @@ func tcpHandle(netConn net.Conn) error {
 		return nil
 
 	case rtmp.CommandPublish:
-		stream := streams.Get(rtmpConn.App)
+		stream := getStream(rtmpConn)
 		if stream == nil {
-			return errors.New("stream not found: " + rtmpConn.App)
+			return errors.New("stream not found: app=" + rtmpConn.App + " key=" + rtmpConn.Stream)
 		}
 
 		if err = rtmpConn.WriteStart(); err != nil {
@@ -122,6 +122,22 @@ func tcpHandle(netConn net.Conn) error {
 	}
 
 	return errors.New("rtmp: unknown command: " + rtmpConn.Intent)
+}
+
+// getStream matches an RTMP URL to a stream name:
+//   - rtmp://host/name           - by app
+//   - rtmp://host/app/name       - by stream key (ex. drones with Antmedia-style URLs)
+//   - rtmp://host/app/name       - by "app/name"
+func getStream(c *rtmp.Conn) *streams.Stream {
+	if c.Stream != "" {
+		if stream := streams.Get(c.Stream); stream != nil {
+			return stream
+		}
+		if stream := streams.Get(c.App + "/" + c.Stream); stream != nil {
+			return stream
+		}
+	}
+	return streams.Get(c.App)
 }
 
 var log zerolog.Logger

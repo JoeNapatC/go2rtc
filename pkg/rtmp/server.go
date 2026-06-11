@@ -180,6 +180,10 @@ func (c *Conn) acceptCommand(b []byte) error {
 		return c.writeMessage(3, TypeCommand, 0, payload)
 
 	case CommandPublish, CommandPlay: // response later
+		// stream key: rtmp://host/app/key (ex. Antmedia-style URLs)
+		if len(items) >= 4 {
+			c.Stream, _ = items[3].(string)
+		}
 		c.Intent = cmd
 		c.streamID = 1
 
